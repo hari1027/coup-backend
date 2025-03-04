@@ -14,23 +14,32 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const wsServer = new WebSocket.Server({ server: server });
 const rooms = {};
+const roomQueues = {};
 const websockets = []
 
 function broadcastToRoom(webSocketmessage) {
     const mes = JSON.parse(webSocketmessage);
+    const roomId = mes.roomId;
+    if (!roomId) return;
+    // Assign message number
+    const msgnumber = roomQueues[roomId].length + 1;
+    mes.msgnumber = msgnumber;
+    // Push message to queue
+    roomQueues[roomId].push(mes);
+    const updatedMessage = JSON.stringify(mes);
     if (mes.type === "delete") {
         for (const client of wsServer.clients) {
-               client.send(webSocketmessage);
+               client.send(updatedMessage);
         }
     }
     else if (mes.type === "kicked") {
         for (const client of wsServer.clients) {
-               client.send(webSocketmessage);
+               client.send(updatedMessage);
         }
     }
     else {
         for (const client of wsServer.clients) {
-            client.send(webSocketmessage);
+            client.send(updatedMessage);
             // break;
         }
     }
@@ -58,6 +67,7 @@ app.post('/create-room', (req, res) => {
     let fourDigitCode = randomNumber.toString().padStart(4, '0');
     const roomId = fourDigitCode;
     rooms[roomId] = { participants: [] , gameStrength : gameStrength , membersWithAudioOn : [], membersWithVedioOn : [] , streams : {} };
+    roomQueues[roomId] = [];
     res.json({ roomId });
 });
 
@@ -152,6 +162,7 @@ app.delete('/delete-room/:roomId', (req, res) => {
     rooms[roomId].membersWithVedioOn = [];
     rooms[roomId].streams = {};
     delete rooms[roomId];
+    delete roomQueues[roomId];
     res.json({ message: `Room ${roomId} has been deleted, and all participants have been removed.` });
 });
 
@@ -214,6 +225,14 @@ app.post('/access-denaid-member', (req, res) => {
     }
     res.json({ message: "removed from membersWithAudioOn and membersWithVedioOn" });
 })
+
+app.get('/get-socketMessages/:roomId', (req, res) => {
+    const roomId = req.params.roomId;
+    if (!roomQueues[roomId]) {
+        return res.status(404).json({ error: 'Room not found' });
+    }
+    res.status(200).json({ messages: roomQueues[roomId] })
+});
 
 server.listen(5000, () => {
     console.log('WebSocket server listening on port 5000');
